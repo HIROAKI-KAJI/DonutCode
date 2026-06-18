@@ -6,13 +6,23 @@
 """
 
 
-class AsciiEncoder:
-    """従来のシンプルなASCIIエンコーダ"""
+class AsciiCodec:
+    """ASCII専用のエンコード・デコード処理"""
+    
     @staticmethod
     def encode(data_str: str):
         msg_bytes = data_str.encode('ascii', errors='ignore')
-        char_count = len(data_str) # 文字数を返す（バイト数ではない）
+        char_count = len(data_str)
         return msg_bytes, char_count
+
+    @staticmethod
+    def decode(msg_bytes: bytes, char_count: int = None) -> str:
+        # 文字数(char_count)が指定されている場合は、その長さまでスライスするなどの処理を入れる
+        # パディング(0xEC, 0x11など)はここの入力の前に切って置く
+        if char_count is not None:
+            msg_bytes = msg_bytes[:char_count]
+            
+        return msg_bytes.decode('ascii', errors='ignore')
 
 
 """ 以下はサンプル 作成途中です。"""

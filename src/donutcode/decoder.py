@@ -113,6 +113,8 @@ class Decoder:
             msg_bytes = bytes(byte_list[:-self.config.ECC_BYTES] if len(byte_list) > self.config.ECC_BYTES else byte_list)
 
         data_bytes = msg_bytes[:char_count] if 0 < char_count <= len(msg_bytes) else msg_bytes
+
+        
         return data_bytes.rstrip(b'\x00').decode('ascii', errors='ignore')
     
     def decode_image(self, img_path: str|np.ndarray):

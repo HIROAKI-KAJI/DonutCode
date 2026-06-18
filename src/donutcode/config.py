@@ -1,13 +1,13 @@
 # config.py
 
-from msg_encoder import AsciiEncoder
+from msg_codec import AsciiCodec
 
 
 class Config_D_27_13:
     GRID_SIZE = 27
     HOLE_RECT = (7, 7, 13, 13)
     ECC_BYTES = 24  # データエリアが小さいため、ECCは多めに取る
-    ENCODER = AsciiEncoder # データのエンコーダ（ascii)
+    MSG_CODEC = AsciiCodec # データのエンコーダとデコーダ（ascii)
 
     # アライメントパターンの左上座標
     ALIGNMENT_POS = (21, 21)

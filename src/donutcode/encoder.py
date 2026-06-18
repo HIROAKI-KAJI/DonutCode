@@ -85,14 +85,14 @@ class Encoder:
 
         # メッセージのエンコード方法をコンフィグに移行
 
-        msg_bytes = self.config.ENCODER.encode(data_str)     
-           
+        msg_bytes, char_count = self.config.MSG_CODEC.encode(data_str)    
+
         if len(msg_bytes) > data_bytes_len:
             raise ValueError("データが長すぎます。")
 
-        self._draw_character_count(matrix, len(msg_bytes))
+        self._draw_character_count(matrix, char_count)
         
-        # QR風パディング
+        # QR風パディング　231 と17で埋める。
         padding = bytes([0xEC if i % 2 == 0 else 0x11 for i in range(data_bytes_len - len(msg_bytes))])
         full_msg_bytes = msg_bytes + padding
 
