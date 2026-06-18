@@ -1,5 +1,4 @@
 # reedsolomon.py
-
 class _ReedSolomon:
     def __init__(self, prim=0x11d):
         # ガロア体 GF(2^8) の指数・対数テーブルの生成
@@ -50,7 +49,7 @@ class _ReedSolomon:
             y = self.gf_mul(y, x) ^ p[i]
         return y
 
-    # --- エンコード（書き込み） ---
+    # --- エンコード ---
     def rs_generator_poly(self, nsym):
         g = [1]
         for i in range(nsym):

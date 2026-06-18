@@ -83,7 +83,10 @@ class Encoder:
         if data_bytes_len <= 0:
             raise ValueError("データ領域が小さすぎます。")
 
-        msg_bytes = data_str.encode('ascii', errors='ignore')
+        # メッセージのエンコード方法をコンフィグに移行
+
+        msg_bytes = self.config.ENCODER.encode(data_str)     
+           
         if len(msg_bytes) > data_bytes_len:
             raise ValueError("データが長すぎます。")
 
