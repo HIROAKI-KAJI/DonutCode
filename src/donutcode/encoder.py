@@ -59,6 +59,7 @@ class Encoder:
                     elif dx == 2 and dy == 2: matrix[y][x] = 1
                     else: matrix[y][x] = 0
 
+                # 使わないが拡張性のために残しています
                 elif self.config.is_timing(x, y):
                     # ゼブラ模様のタイミングパターン
                     matrix[y][x] = 1 if (x if y == 7 else y) % 2 == 0 else 0
