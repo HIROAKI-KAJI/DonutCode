@@ -1,0 +1,22 @@
+=== Config: D-25-11-Compact ===
+Total Trials: 144
+Overall Success Rate: 23.6%
+
+--- Success Rate by Size ---
+size,Success Rate (%)
+30,0.0
+50,16.666666666666664
+100,38.88888888888889
+200,38.88888888888889
+
+--- Success Rate by Rotation ---
+rot_z,Success Rate (%)
+0,18.75
+30,25.0
+45,30.0
+
+--- Success Rate by Homography X & Y ---
+homo_y,0,30,50
+0,75.0,25.0,0.0
+30,50.0,58.333333333333336,8.333333333333332
+50,0.0,0.0,0.0

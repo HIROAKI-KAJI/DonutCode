@@ -107,28 +107,52 @@ class VisionProcessor:
         valid_contours = []
         if hierarchy is None: return centers, valid_contours
 
-        # ファインダ検出ロジックは旧バージョンの堅牢な実装を維持
+        # hierarchyの形状は (1, N, 4) で [Next, Previous, First_Child, Parent]
         for i in range(len(contours)):
-            c1_idx = hierarchy[0][i][2]
-            if c1_idx != -1:
-                c2_idx = hierarchy[0][c1_idx][2]
-                if c2_idx != -1:
-                    c = contours[i]
-                    if cv2.contourArea(c) < 50: continue
-                    
-                    rect = cv2.minAreaRect(c)
-                    w, h = rect[1]
-                    if w == 0 or h == 0: continue
-                    aspect_ratio = max(w, h) / min(w, h)
+            c = contours[i]
+            
+            # 1. 極端に小さいノイズは除外
+            if cv2.contourArea(c) < 50: 
+                continue
+                
+            # 2. 階層チェック: 「子」と「孫」を持っているか？ (入れ子構造の確認)
+            child_idx = hierarchy[0][i][2]
+            if child_idx == -1: continue
+            
+            grandchild_idx = hierarchy[0][child_idx][2]
+            if grandchild_idx == -1: continue
 
-                    is_valid = (aspect_ratio < 1.3) if strict_mode else (aspect_ratio < 2.0)
-                    if is_valid:
-                        M = cv2.moments(c)
-                        if M["m00"] != 0:
-                            cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
-                            if not any(np.hypot(cx - ex, cy - ey) < 15 for ex, ey in centers):
-                                centers.append([cx, cy])
-                                valid_contours.append(c)
+            # 3. 多角形近似 (四角形らしさのチェック)
+            # 輪郭の周囲長の数%を許容誤差として、図形を直線で近似する
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.04 * peri, True)
+            
+            # 頂点が4〜6個程度ならOKとする（パースや滲みで5,6角形になることがあるため）
+            if strict_mode and not (4 <= len(approx) <= 6):
+                continue
+
+            # 4. 面積比チェック (パースがかかっても、親と孫の面積比は極端には崩れない)
+            grandchild_c = contours[grandchild_idx]
+            area_parent = cv2.contourArea(c)
+            area_grandchild = cv2.contourArea(grandchild_c)
+            
+            if area_grandchild == 0: continue
+            ratio = area_parent / area_grandchild
+            
+            # ファインダは 7x7 と 3x3 なので、理想的な面積比は 49:9 (約5.4倍)
+            # パースを考慮して広い範囲(2.0倍 〜 15.0倍)を許容する
+            if not (2.0 < ratio < 15.0):
+                continue
+
+            # 5. 重心の計算と重複排除
+            M = cv2.moments(c)
+            if M["m00"] != 0:
+                cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
+                # 既に近い座標が登録されていなければ追加
+                if not any(np.hypot(cx - ex, cy - ey) < 15 for ex, ey in centers):
+                    centers.append([cx, cy])
+                    valid_contours.append(c)
+                    
         return centers, valid_contours
 
     # =======================================================
