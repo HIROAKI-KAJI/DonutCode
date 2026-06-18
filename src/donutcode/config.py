@@ -1,19 +1,21 @@
 # config.py
 
 from msg_codec import AsciiCodec
+from payloadbuilder import PayloadBuilder
+from header_strategy import OneByteLengthHeader
 
 
 class Config_D_27_13:
     GRID_SIZE = 27
     HOLE_RECT = (7, 7, 13, 13)
     ECC_BYTES = 24  # データエリアが小さいため、ECCは多めに取る
-    MSG_CODEC = AsciiCodec # データのエンコーダとデコーダ（ascii)
+    PAYLOAD_BUILDER = PayloadBuilder(
+        codec=AsciiCodec(),
+        header_strategy=OneByteLengthHeader()
+    ) # データのエンコーダとデコーダ（ascii)
 
     # アライメントパターンの左上座標
     ALIGNMENT_POS = (21, 21)
-
-    # 文字数エリア(8ビット)の座標リスト (MSB -> LSBの順)
-    CHAR_COUNT_COORDS = [(x, y) for y in range(8, 10) for x in range(4)]
 
     @classmethod
     def is_finder(cls, x, y):
@@ -39,9 +41,6 @@ class Config_D_27_13:
         if x == 7 and 8 <= y <= cls.GRID_SIZE - 9: return True
         return False
 
-    @classmethod
-    def is_char_count(cls, x, y):
-        return (x, y) in cls.CHAR_COUNT_COORDS
 
     @classmethod
     def get_mapping(cls):
@@ -60,7 +59,6 @@ class Config_D_27_13:
                     if cls.is_finder(x, y): continue
                     if cls.is_hole(x, y): continue
                     if cls.is_alignment(x, y): continue
-                    if cls.is_char_count(x, y): continue
                     if cls.is_timing(x, y): continue
                     
                     available.append((x, y))

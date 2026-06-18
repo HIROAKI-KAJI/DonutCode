@@ -1,4 +1,3 @@
-# encoder.py
 import colorsys
 from PIL import Image, ImageDraw
 from .reedsolomon import _ReedSolomon
@@ -64,12 +63,6 @@ class Encoder:
                     # ゼブラ模様のタイミングパターン
                     matrix[y][x] = 1 if (x if y == 7 else y) % 2 == 0 else 0
 
-    def _draw_character_count(self, matrix, count):
-        """Configの座標順序に従ってMSBから書き込む"""
-        bits = [(count >> i) & 1 for i in range(7, -1, -1)]
-        for (x, y), bit in zip(self.config.CHAR_COUNT_COORDS, bits):
-            matrix[y][x] = bit
-    
     def encode(self, data_str):
         matrix = [[0] * self.grid_size for _ in range(self.grid_size)]
         
@@ -83,16 +76,16 @@ class Encoder:
         if data_bytes_len <= 0:
             raise ValueError("データ領域が小さすぎます。")
 
-        # メッセージのエンコード方法をコンフィグに移行
 
-        msg_bytes, char_count = self.config.MSG_CODEC.encode(data_str)    
+
+        # メッセージのエンコード (文字数ヘッダはCodec内で付与されている前提です。)
+        # 情報ビットとデータコード語の処理は codecにすべて任せています。
+        msg_bytes = self.config.PAYLOAD_BUILDER.encode(data_str)    
 
         if len(msg_bytes) > data_bytes_len:
             raise ValueError("データが長すぎます。")
 
-        self._draw_character_count(matrix, char_count)
-        
-        # QR風パディング　231 と17で埋める。
+        # QR風パディング 231(0xEC) と17(0x11) で埋める。
         padding = bytes([0xEC if i % 2 == 0 else 0x11 for i in range(data_bytes_len - len(msg_bytes))])
         full_msg_bytes = msg_bytes + padding
 
@@ -143,9 +136,6 @@ class Encoder:
                 
                 elif self.config.is_finder(x, y) or self.config.is_alignment(x, y) or self.config.is_timing(x, y):
                     draw.rectangle(box, fill="black")
-                
-                elif self.config.is_char_count(x, y):
-                    draw.rectangle(box, fill="#FFD700", outline="white")
                 
                 elif hx <= x < hx + hw and hy <= y < hy + hh:
                     draw.rectangle(box, fill="#FFE4E1")

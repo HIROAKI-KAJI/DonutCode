@@ -84,15 +84,10 @@ class Decoder:
         return fixed_bit_map
 
     def _decode_from_bit_map(self, bit_map):
-        # 1. 文字数エリアの読み取り
-        char_count = 0
-        for (x, y) in self.config.CHAR_COUNT_COORDS:
-            char_count = (char_count << 1) | bit_map[y, x]
-        print(f"[Debug] 読み取った文字数(Length Indicator): {char_count} バイト")
+        # 1. 文字数エリアの読み取り（データコード語に含めるようにしたため不要です.
 
         # 2. ジグザグマッピングに従って抽出
-        bit_stream = [bit_map[x, y] for x, y in self.config.get_mapping()]
-
+        bit_stream = [bit_map[y, x] for x, y in self.config.get_mapping()]
         # 3. バイト列の復元 (MSB First)
         byte_list = bytearray()
         for i in range(0, len(bit_stream) - (len(bit_stream) % 8), 8):
@@ -104,7 +99,7 @@ class Decoder:
         hex_dump = " ".join([f"{b:02X}" for b in byte_list])
         print(f"[Debug] 抽出した総バイト列 (Hex): {hex_dump}")
 
-        # 4. リードソロモンによる誤り訂正と文字列化
+        # 3. リードソロモンによる誤り訂正
         try:
             decoded_bytes = self.rs.decode(byte_list, self.config.ECC_BYTES)
             msg_bytes = bytes(decoded_bytes)
@@ -112,10 +107,14 @@ class Decoder:
             print(f"[警告] RSデコード失敗: {e}")
             msg_bytes = bytes(byte_list[:-self.config.ECC_BYTES] if len(byte_list) > self.config.ECC_BYTES else byte_list)
 
-        data_bytes = msg_bytes[:char_count] if 0 < char_count <= len(msg_bytes) else msg_bytes
-
-        
-        return data_bytes.rstrip(b'\x00').decode('ascii', errors='ignore')
+        # 4. PayloadBuilderによるデータの解釈と文字列化
+        # ヘッダの切り出しやパディングの無視、文字コード変換はすべてこちらで行う
+        try:
+            decoded_str = self.config.PAYLOAD_BUILDER.decode(msg_bytes)
+            return decoded_str
+        except Exception as e:
+            print(f"[エラー] ペイロードのデコード失敗: {e}")
+            return None
     
     def decode_image(self, img_path: str|np.ndarray):
         try:

@@ -4,6 +4,9 @@ src/donutcode/__init__.py
 src/donutcode/config.py
 src/donutcode/decoder.py
 src/donutcode/encoder.py
+src/donutcode/header_strategy.py
+src/donutcode/msg_codec.py
+src/donutcode/payloadbuilder.py
 src/donutcode/reedsolomon.py
 src/donutcode/vision.py
 src/donutcode.egg-info/PKG-INFO
