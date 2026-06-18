@@ -43,24 +43,26 @@ class Encoder:
         self._draw_finder(matrix, self.grid_size - 8, -1)              # 右上
         self._draw_finder(matrix, -1, self.grid_size - 8)              # 左下
 
+        #　関数が定義されていなければfalseを返す関数にラップ
+        is_finder = getattr(self.config, 'is_finder', lambda x, y: False)
+        is_alignment = getattr(self.config, 'is_alignment', lambda x, y: False)
+        is_timing = getattr(self.config, 'is_timing', lambda x, y: False)
+
         # 2. その他のパターンの描画
         for y in range(self.grid_size):
             for x in range(self.grid_size):
-                if self.config.is_finder(x, y):
-                    # ファインダはすでに描画済みのためスキップ
+                if is_finder(x, y):
                     continue
                 
-                elif self.config.is_alignment(x, y):
-                    ax, ay = self.config.ALIGNMENT_POS
+                elif is_alignment(x, y):
+                    # アライメント位置の定義がない場合も考慮して getattr
+                    ax, ay = getattr(self.config, 'ALIGNMENT_POS', (0, 0))
                     dx, dy = x - ax, y - ay
-                    # 5x5のアライメントパターン
                     if dx == 0 or dx == 4 or dy == 0 or dy == 4: matrix[y][x] = 1
                     elif dx == 2 and dy == 2: matrix[y][x] = 1
                     else: matrix[y][x] = 0
 
-                # 使わないが拡張性のために残しています
-                elif self.config.is_timing(x, y):
-                    # ゼブラ模様のタイミングパターン
+                elif is_timing(x, y):
                     matrix[y][x] = 1 if (x if y == 7 else y) % 2 == 0 else 0
 
     def encode(self, data_str):
@@ -70,13 +72,16 @@ class Encoder:
         self._draw_fixed_patterns(matrix)
 
         available_cells = self.config.get_mapping()
-        max_bytes = len(available_cells) // 8
+        
+        # CELL_REPEAT を取得 (定義がないコンフィグの場合は 1 となる)
+        cell_repeat = getattr(self.config, 'CELL_REPEAT', 1)
+
+        # 物理マスを cell_repeat で割った数が、論理的な最大バイト数になる
+        max_bytes = (len(available_cells) // cell_repeat) // 8
         data_bytes_len = max_bytes - self.config.ECC_BYTES
         
         if data_bytes_len <= 0:
             raise ValueError("データ領域が小さすぎます。")
-
-
 
         # メッセージのエンコード (文字数ヘッダはCodec内で付与されている前提です。)
         # 情報ビットとデータコード語の処理は codecにすべて任せています。
@@ -92,12 +97,19 @@ class Encoder:
         # RSエンコード
         encoded_bytes = self.rs.encode(full_msg_bytes, self.config.ECC_BYTES)
 
-        # ビット化 (MSB First)
-        bit_stream = [(byte >> i) & 1 for byte in encoded_bytes for i in range(7, -1, -1)]
-        bit_stream.extend([0] * (len(available_cells) - len(bit_stream)))
+        # 論理ビット化 (MSB First)
+        logical_bit_stream = [(byte >> i) & 1 for byte in encoded_bytes for i in range(7, -1, -1)]
+        
+        # 物理セルへの割り当て (ビットのコピー増殖)
+        physical_bit_stream = []
+        for bit in logical_bit_stream:
+            physical_bit_stream.extend([bit] * cell_repeat)
+            
+        # 余りマスのゼロ埋め
+        physical_bit_stream.extend([0] * (len(available_cells) - len(physical_bit_stream)))
 
         # Configのマッピング順序で配置
-        for (x, y), bit in zip(available_cells, bit_stream):
+        for (x, y), bit in zip(available_cells, physical_bit_stream):
             matrix[y][x] = bit
 
         return matrix
@@ -107,11 +119,17 @@ class Encoder:
         draw = ImageDraw.Draw(img)
         
         available_cells = self.config.get_mapping()
-        total_bytes = len(available_cells) // 8
+        
+        #  デバッグ画像用にも CELL_REPEAT を取得
+        cell_repeat = getattr(self.config, 'CELL_REPEAT', 1)
+        
+        # 論理的な総バイト数を計算
+        total_bytes = (len(available_cells) // cell_repeat) // 8
         
         cell_to_byte_idx = {}
         for bit_idx, (x, y) in enumerate(available_cells):
-            byte_idx = bit_idx // 8
+            # 何番目の物理ビットかをcell_repeatで割り、さらに8で割って論理的なバイトインデックスを算出
+            byte_idx = (bit_idx // cell_repeat) // 8
             cell_to_byte_idx[(x, y)] = byte_idx
 
         def get_gradient_color(idx, total):
@@ -121,6 +139,11 @@ class Encoder:
             return (int(r * 255), int(g * 255), int(b * 255))
 
         hx, hy, hw, hh = self.config.HOLE_RECT
+
+        # 固定パタンの位置関数がないときはfalseを返す関数にラップ
+        is_finder = getattr(self.config, 'is_finder', lambda x, y: False)
+        is_alignment = getattr(self.config, 'is_alignment', lambda x, y: False)
+        is_timing = getattr(self.config, 'is_timing', lambda x, y: False)
 
         for y in range(self.grid_size):
             for x in range(self.grid_size):
@@ -134,7 +157,7 @@ class Encoder:
                         color = (200, 200, 200)
                     draw.rectangle(box, fill=color, outline="white")
                 
-                elif self.config.is_finder(x, y) or self.config.is_alignment(x, y) or self.config.is_timing(x, y):
+                elif is_finder(x, y) or is_alignment(x, y) or is_timing(x, y):
                     draw.rectangle(box, fill="black")
                 
                 elif hx <= x < hx + hw and hy <= y < hy + hh:

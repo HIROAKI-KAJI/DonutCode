@@ -15,3 +15,18 @@ class PayloadBuilder:
         raw_bytes = self.header_strategy.extract_data(payload_bytes)
         # 2. バイト列 -> 文字列
         return self.codec.decode(raw_bytes)
+    
+
+    def get_max_chars(self, total_data_bytes: int) -> int:
+        """
+        物理層のデータ領域(total_data_bytes)に対して、
+        現在の設定で埋め込み可能な最大文字数を算出する
+        """
+        if total_data_bytes <= 0:
+            return 0
+            
+        # 1. ヘッダ戦略に問い合わせて、データ本体に使えるバイト数を割り出す
+        payload_bytes = self.header_strategy.get_max_payload_bytes(total_data_bytes)
+        
+        # 2. そのバイト数で何文字いけるかをCodecに問い合わせる
+        return self.codec.get_max_chars(payload_bytes)

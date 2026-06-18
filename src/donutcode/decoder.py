@@ -77,50 +77,68 @@ class Decoder:
             f.write("   " + "".join([f"{i:2d}" for i in range(gs)]) + "\n")
             f.write("   " + "-" * (gs * 2) + "\n")
             for y in range(gs):
-                row_str = "".join([f"{fixed_bit_map[x, y]} " for x in range(gs)])
+                # Numpy配列なので必ず [y, x]
+                row_str = "".join([f"{fixed_bit_map[y, x]} " for x in range(gs)])
                 f.write(f"{y:2d}| {row_str}\n")
         print(" -> [Debug] ビットマップを sample-result/bit_map_debug.txt に保存しました")
 
         return fixed_bit_map
+    
+    def _attempt_decode(self, bit_map):
+        """与えられたビットマップからバイト列を抽出し、デコードを試みる内部関数"""
+        # CELL_REPEAT を取得
+        cell_repeat = getattr(self.config, 'CELL_REPEAT', 1)
 
-    def _decode_from_bit_map(self, bit_map):
-        # 1. 文字数エリアの読み取り（データコード語に含めるようにしたため不要です.
+        # ジグザグマッピングに従って抽出 (Numpyは [y, x] でアクセス)
+        raw_bit_stream = [bit_map[y, x] for x, y in self.config.get_mapping()]
 
-        # 2. ジグザグマッピングに従って抽出
-        bit_stream = [bit_map[y, x] for x, y in self.config.get_mapping()]
-        # 3. バイト列の復元 (MSB First)
+        # 多数決による論理ビットの復元
+        logical_bit_stream = []
+        for i in range(0, len(raw_bit_stream) - (len(raw_bit_stream) % cell_repeat), cell_repeat):
+            chunk = raw_bit_stream[i : i + cell_repeat]
+            # チャンク内の1の合計が半分以上なら1、それ以外なら0 (多数決)
+            vote = 1 if sum(chunk) >= (cell_repeat / 2.0) else 0
+            logical_bit_stream.append(vote)
+
+        # バイト列の復元 (MSB First)
         byte_list = bytearray()
-        for i in range(0, len(bit_stream) - (len(bit_stream) % 8), 8):
+        for i in range(0, len(logical_bit_stream) - (len(logical_bit_stream) % 8), 8):
             byte_val = 0
             for j in range(8):
-                byte_val = (byte_val << 1) | bit_stream[i + j]
+                byte_val = (byte_val << 1) | logical_bit_stream[i + j]
             byte_list.append(byte_val)
 
-        hex_dump = " ".join([f"{b:02X}" for b in byte_list])
-        print(f"[Debug] 抽出した総バイト列 (Hex): {hex_dump}")
+        # リードソロモンによる誤り訂正
+        decoded_bytes = self.rs.decode(byte_list, self.config.ECC_BYTES)
+        msg_bytes = bytes(decoded_bytes)
 
-        # 3. リードソロモンによる誤り訂正
-        try:
-            decoded_bytes = self.rs.decode(byte_list, self.config.ECC_BYTES)
-            msg_bytes = bytes(decoded_bytes)
-        except Exception as e:
-            print(f"[警告] RSデコード失敗: {e}")
-            msg_bytes = bytes(byte_list[:-self.config.ECC_BYTES] if len(byte_list) > self.config.ECC_BYTES else byte_list)
+        # PayloadBuilderによるデータの解釈と文字列化
+        return self.config.PAYLOAD_BUILDER.decode(msg_bytes)
 
-        # 4. PayloadBuilderによるデータの解釈と文字列化
-        # ヘッダの切り出しやパディングの無視、文字コード変換はすべてこちらで行う
+    def _decode_from_bit_map(self, bit_map):
+        """ビットマップからデコードを試みる関数"""
+        # 斜めに撮ったときなど鏡像反転する場合がある（右上と左下が逆になる）ので両方試す。
         try:
-            decoded_str = self.config.PAYLOAD_BUILDER.decode(msg_bytes)
-            return decoded_str
+            return self._attempt_decode(bit_map)
         except Exception as e:
-            print(f"[エラー] ペイロードのデコード失敗: {e}")
+            print(f"[Debug] 通常方向での読み取り失敗 ({e})。鏡像反転を試みます...")
+
+        try:
+            transposed_map = bit_map.T 
+            result = self._attempt_decode(transposed_map)
+            print(f"[Debug] 反転後読み取りに成功しました！")
+            return result
+        except Exception as e:
+            print(f"[error] 鏡像反転でのデコード失敗: {e}")
             return None
     
     def decode_image(self, img_path: str|np.ndarray):
         try:
             square_img = self.vision.process(img_path, debug_mode=True)
+            if square_img is None:
+                return None
             bit_map = self.image_to_bitmap(square_img)
             return self._decode_from_bit_map(bit_map)
         except Exception as e:
-            print(f"[エラー] 画像デコード失敗: {e}")
+            print(f"[error] 画像デコード失敗: {e}")
             return None

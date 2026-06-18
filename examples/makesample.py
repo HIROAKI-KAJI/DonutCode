@@ -43,7 +43,7 @@ def main():
         # ※初期化はループ外で1度だけ行うと処理が高速になります
         encoder = Encoder(config_type=CONFIG_TYPE)
     except Exception as e:
-        print(f"❌ エンコーダの初期化に失敗しました: {e}")
+        print(f" エンコーダの初期化に失敗しました: {e}")
         return
 
     for n in range(NUM_SAMPLES):
@@ -60,7 +60,7 @@ def main():
             print(f" -> 生成成功: {output_image}")
             
         except Exception as e:
-            print(f"❌ 画像の生成中にエラーが発生しました: {e}")
+            print(f" 画像の生成中にエラーが発生しました: {e}")
 
     print("\n===== 全サンプルの生成が完了しました =====")
 
