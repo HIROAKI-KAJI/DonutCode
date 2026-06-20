@@ -1,0 +1,22 @@
+=== Config: QRCode_v2_L ===
+Total Trials: 72
+Overall Success Rate: 33.3%
+
+--- Success Rate by Size ---
+size,Success Rate (%)
+30,0.0
+50,0.0
+100,50.0
+200,83.33333333333334
+
+--- Success Rate by Rotation ---
+rot_z,Success Rate (%)
+0,40.625
+30,30.0
+45,25.0
+
+--- Success Rate by Homography X & Y ---
+homo_y,0,30,50
+0,50.0,50.0,50.0
+30,50.0,41.66666666666667,16.666666666666664
+50,50.0,33.33333333333333,8.333333333333332

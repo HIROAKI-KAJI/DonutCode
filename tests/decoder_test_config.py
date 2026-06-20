@@ -5,7 +5,7 @@ DonutCode デコーダ単体テストスクリプト
 analyze_results.py　にて処理することでグラフにできます
 
 【使い方】
-python examples/decoder_test.py
+python tests/decoder_test.py
 """
 
 import os

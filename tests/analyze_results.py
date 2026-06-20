@@ -8,7 +8,8 @@ import seaborn as sns
 # ==========================================
 # 設定
 # ==========================================
-INPUT_FILE = "./test_result/test_results_D-25-11-Compact.csv"  # CSVファイル
+#INPUT_FILE = "./test_result/test_results_QRCode_v2_L.csv"  # CSVファイル
+INPUT_FILE = "./test_result/test_results_QRCode_v2_Q.csv"  # CSVファイル
 OUTPUT_BASE_DIR = "test_result"  # グラフなどを出力するベースフォルダ
 
 def parse_filename(filename):
