@@ -32,7 +32,7 @@ TEST_CASES = [
 ]
 """
 
-# 同じコーデックで一気にテスト用
+# 同じコーデックで一気にテスト用(analyze_results.pyで可視化するためのCSV出力用)
 TEST_IMG_DIR = "detect_test_samples"
 TEST_CONFIG = "D-25-11-Compact"
 
