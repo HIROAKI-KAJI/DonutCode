@@ -2,6 +2,16 @@
 import cv2
 import numpy as np
 import os
+from dataclasses import dataclass
+
+@dataclass
+class FinderCandidate:
+    pos: tuple
+    score: float
+    contour: np.ndarray
+    area_ratio: float      
+    has_child: bool = False
+
 
 """DonutCodeの画像処理モジュール
 このモジュールは、DonutCodeの画像からコード領域を検出して、透視変換を行うためのクラスを提供します。
@@ -102,35 +112,47 @@ class VisionProcessor:
                         state_count[current_state] += 1
         return self._cluster_centers(centers)
 
-    def _get_finder_candidates(self, contours, hierarchy, strict_mode=True):
-        centers = []
-        valid_contours = []
-        if hierarchy is None: return centers, valid_contours
+    def _get_square_score(self, contour):
+        """輪郭の正方形度合いを計算 (高いほど正方形に近い)"""
+        rect = cv2.minAreaRect(contour)
+        (w, h) = rect[1]
+        if w == 0 or h == 0: return 0
+        aspect_ratio = max(w, h) / min(w, h)
+        # 1.0に近いほど高スコア
+        return max(0, 100 - abs(aspect_ratio - 1.0) * 100)
 
-        # ファインダ検出ロジックは旧バージョンの堅牢な実装を維持
+    def _get_finder_candidates(self, contours, hierarchy, strict_mode=True):
+        candidates = []
+        if hierarchy is None: return candidates
+
         for i in range(len(contours)):
             c1_idx = hierarchy[0][i][2]
             if c1_idx != -1:
                 c2_idx = hierarchy[0][c1_idx][2]
                 if c2_idx != -1:
                     c = contours[i]
-                    if cv2.contourArea(c) < 50: continue
+                    area = cv2.contourArea(c)
+                    if area < 50: continue
                     
-                    rect = cv2.minAreaRect(c)
-                    w, h = rect[1]
-                    if w == 0 or h == 0: continue
-                    aspect_ratio = max(w, h) / min(w, h)
+                    # 面積比計算 (親と子)
+                    area_child = cv2.contourArea(contours[c1_idx])
+                    area_ratio = area_child / area if area > 0 else 0
 
-                    is_valid = (aspect_ratio < 1.3) if strict_mode else (aspect_ratio < 2.0)
-                    if is_valid:
-                        M = cv2.moments(c)
-                        if M["m00"] != 0:
-                            cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
-                            if not any(np.hypot(cx - ex, cy - ey) < 15 for ex, ey in centers):
-                                centers.append([cx, cy])
-                                valid_contours.append(c)
-        return centers, valid_contours
+                    score = self._get_square_score(c)
+                    if strict_mode and score < 70: continue
 
+                    M = cv2.moments(c)
+                    if M["m00"] != 0:
+                        cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
+                        if not any(np.hypot(cx - cand.pos[0], cy - cand.pos[1]) < 15 for cand in candidates):
+                            candidates.append(FinderCandidate(
+                                pos=(cx, cy),
+                                score=score,
+                                contour=c,
+                                area_ratio=area_ratio, # 計算した値を渡す
+                                has_child=True
+                            ))
+        return candidates
     # =======================================================
     # process メソッド (デバッグモード追加)
     # =======================================================
@@ -139,6 +161,8 @@ class VisionProcessor:
         if img is None: raise FileNotFoundError(f"画像 '{img_path}' が読み込めません。")
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
+
+        # 複数の閾値でロバストに探索
         thresh1 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 5)
         thresh2 = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 41, 5)
         _, thresh3 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
@@ -150,13 +174,13 @@ class VisionProcessor:
         
         for name, thresh in thresholds:
             contours, hierarchy = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            centers, valid_contours = self._get_finder_candidates(contours, hierarchy, strict_mode=True)
-            if len(centers) >= 3:
-                best_centers, best_contours, best_hierarchy = centers, contours, hierarchy
+            candidates = self._get_finder_candidates(contours, hierarchy)            
+            if len(candidates) >= 3:
+                best_centers, best_contours, best_hierarchy = [c.pos for c in candidates], contours, hierarchy
                 break
-            centers, valid_contours = self._get_finder_candidates(contours, hierarchy, strict_mode=False)
-            if len(centers) >= 3:
-                best_centers, best_contours, best_hierarchy = centers, contours, hierarchy
+            candidates = self._get_finder_candidates(contours, hierarchy, strict_mode=False)
+            if len(candidates) >= 3:
+                best_centers, best_contours, best_hierarchy = [c.pos for c in candidates], contours, hierarchy
                 break
 
         if not best_centers or len(best_centers) < 3:
@@ -190,56 +214,53 @@ class VisionProcessor:
         estimated_BR = TR + BL - TL
 
         # =======================================================
-        # 【修正】アライメントパターンの高精度探索（白四角ベース）
+        # 【改良】アライメントパターンの高精度探索とサイズ検証
         # =======================================================
         actual_alignment = None
-        if best_contours is not None and best_hierarchy is not None and self.config and hasattr(self.config, 'ALIGNMENT_POS') and self.config.ALIGNMENT_POS:
+        if best_contours is not None and self.config and hasattr(self.config, 'ALIGNMENT_POS'):
+            # ファインダー間の距離から「1セルあたりのピクセル数」を逆算
             dist_x_px = np.linalg.norm(TR - TL)
-            dist_y_px = np.linalg.norm(BL - TL)
-            cell_size_px = ((dist_x_px + dist_y_px) / 2.0) / (self.grid_size - 7)
-            search_radius = cell_size_px * 4 
-
+            cell_size = dist_x_px / (self.grid_size - 7)
+            
+            # 探索半径と許容サイズ誤差
+            search_radius = cell_size * 5
+            
             candidates = []
             for i in range(len(best_contours)):
                 c = best_contours[i]
                 M = cv2.moments(c)
                 if M["m00"] == 0: continue
-                
                 cx, cy = M["m10"] / M["m00"], M["m01"] / M["m00"]
-                dist = np.hypot(cx - estimated_BR[0], cy - estimated_BR[1])
                 
-                if dist < search_radius:
-                    # ファインダパターン自身を除外
-                    if (np.hypot(cx - TL[0], cy - TL[1]) > search_radius and
-                        np.hypot(cx - TR[0], cy - TR[1]) > search_radius and
-                        np.hypot(cx - BL[0], cy - BL[1]) > search_radius):
-                        
-                        # 形状がほぼ正方形かチェック
-                        rect = cv2.minAreaRect(c)
-                        w, h = rect[1]
-                        if w == 0 or h == 0: continue
-                        aspect_ratio = max(w, h) / min(w, h)
-                        
-                        if aspect_ratio < 1.5:
-                            # 階層構造チェック：子要素（内側の黒四角）を持っているか？
-                            # 白四角は穴（hole）なので、中に黒四角があれば has_child が True になる
-                            has_child = best_hierarchy[0][i][2] != -1
-                            candidates.append({
-                                'pos': [cx, cy],
-                                'dist': dist,
-                                'has_child': has_child
-                            })
-            
+                # 距離制約
+                dist = np.hypot(cx - estimated_BR[0], cy - estimated_BR[1])
+                if dist > search_radius: continue
+                
+                # サイズ制約 (アライメントの面積はファインダーと一定の比率であるはず)
+                area = cv2.contourArea(c)
+                expected_area = (cell_size * 3) ** 2 # アライメントが3x3モジュールと仮定
+                if not (0.5 * expected_area < area < 2.0 * expected_area):
+                    continue
+
+                # 形状評価 (FinderCandidate にある _get_square_score を再利用)
+                score = self._get_square_score(c)
+                if score < 60: continue
+
+                # 面積比計算
+                area_ratio = cv2.contourArea(c) / (cv2.contourArea(contours[best_hierarchy[0][i][2]]) + 1e-5)
+
+                candidates.append(FinderCandidate(
+                    pos=(cx, cy),
+                    score=score,
+                    contour=c,
+                    area_ratio=area_ratio
+                ))
+
             if candidates:
-                # 「子要素（内側黒四角）を持つ白四角」を最優先で選ぶ
-                with_child = [cand for cand in candidates if cand['has_child']]
-                if with_child:
-                    best_cand = min(with_child, key=lambda x: x['dist'])
-                    actual_alignment = best_cand['pos']
-                else:
-                    # 見つからなかった場合でも一番近い四角形にフォールバック
-                    best_cand = min(candidates, key=lambda x: x['dist'])
-                    actual_alignment = best_cand['pos']
+                # 距離と形状スコア、さらに面積比の妥当性で重み付け
+                actual_alignment = min(candidates, key=lambda x: x.dist / (x.score + 1))
+                actual_alignment = actual_alignment.pos
+            
 
         gs, ts = self.grid_size, self.target_side
 
