@@ -1,9 +1,11 @@
 # decoder.py
+import os
 import cv2
 import numpy as np
 from .reedsolomon import _ReedSolomon
 from .config import get_config
 from .vision import VisionProcessor
+
 
 class Decoder:
     def __init__(self, config_type="D-27-13"):
@@ -13,89 +15,88 @@ class Decoder:
         self.vision = VisionProcessor(config=self.config)
 
     def _fix_orientation(self, bit_map):
-        """ファインダパタンの位置から画像の正しい向きを判定して回転を補正する"""
+        """ファインダパタンの位置から画像の向きを判定して補正する（フォールバック時の保険）"""
         gs = self.grid_size
         fp_template = np.array([
-            [1,1,1,1,1,1,1],
-            [1,0,0,0,0,0,1],
-            [1,0,1,1,1,0,1],
-            [1,0,1,1,1,0,1],
-            [1,0,1,1,1,0,1],
-            [1,0,0,0,0,0,1],
-            [1,1,1,1,1,1,1]
+            [1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 1],
+            [1, 0, 1, 1, 1, 0, 1],
+            [1, 0, 1, 1, 1, 0, 1],
+            [1, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1],
         ])
 
         corners = {
-            'TL': bit_map[0:7, 0:7],
-            'TR': bit_map[0:7, gs-7:gs],
-            'BL': bit_map[gs-7:gs, 0:7],
-            'BR': bit_map[gs-7:gs, gs-7:gs]
+            "TL": bit_map[0:7, 0:7],
+            "TR": bit_map[0:7, gs - 7 : gs],
+            "BL": bit_map[gs - 7 : gs, 0:7],
+            "BR": bit_map[gs - 7 : gs, gs - 7 : gs],
         }
 
-        # 各角がどれくらいファインダパタンに似ているかスコア化
-        match_scores = {name: np.sum(img == fp_template) for name, img in corners.items()}
+        match_scores = {name: int(np.sum(img == fp_template)) for name, img in corners.items()}
         print(f"[Debug] 回転判定スコア (TL, TR, BL, BR): {match_scores}")
-        
-        # 一番ファインダに似ていない角が「右下(BR)」になるように回転
+
         odd_corner = min(match_scores, key=match_scores.get)
         print(f"[Debug] ファインダのない角: {odd_corner}")
 
-        if odd_corner == 'TR':
+        if odd_corner == "TR":
             return np.rot90(bit_map, -1)
-        elif odd_corner == 'TL':
+        elif odd_corner == "TL":
             return np.rot90(bit_map, 2)
-        elif odd_corner == 'BL':
+        elif odd_corner == "BL":
             return np.rot90(bit_map, 1)
 
         return bit_map
 
-    def image_to_bitmap(self, square_img):
-        """サンプリングしてビットマップを生成"""
+    def image_to_bitmap(self, square_img, debug_mode=True):
+        """サンプリングしてビットマップ (shape: [y, x]) を生成"""
         gray_crop = cv2.cvtColor(square_img, cv2.COLOR_BGR2GRAY)
-        _, thresh_crop = cv2.threshold(gray_crop, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        _, thresh_crop = cv2.threshold(
+            gray_crop, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU
+        )
 
         gs = self.grid_size
         cell_size = square_img.shape[0] / gs
         bit_map = np.zeros((gs, gs), dtype=int)
 
-        for row in range(gs):
-            for col in range(gs):
-                center_x = int((col + 0.5) * cell_size)
-                center_y = int((row + 0.5) * cell_size)
-                
-                # 黒(<128)なら1、白なら0
-                if thresh_crop[center_y, center_x] < 128:  
-                    bit_map[row, col] = 1
-                else:  
-                    bit_map[row, col] = 0
+        for y in range(gs):
+            for x in range(gs):
+                center_x = int((x + 0.5) * cell_size)
+                center_y = int((y + 0.5) * cell_size)
 
-        # 回転補正してから返す
+                # 黒(<128)なら1、白なら0
+                bit_map[y, x] = 1 if thresh_crop[center_y, center_x] < 128 else 0
+
         fixed_bit_map = self._fix_orientation(bit_map)
 
-        # デバッグ用のテキスト出力
-        with open("sample-result/bit_map_debug.txt", "w") as f:
-            f.write("   " + "".join([f"{i:2d}" for i in range(gs)]) + "\n")
-            f.write("   " + "-" * (gs * 2) + "\n")
-            for y in range(gs):
-                row_str = "".join([f"{fixed_bit_map[x, y]} " for x in range(gs)])
-                f.write(f"{y:2d}| {row_str}\n")
-        print(" -> [Debug] ビットマップを sample-result/bit_map_debug.txt に保存しました")
+        if debug_mode:
+            os.makedirs("sample-result", exist_ok=True)
+            with open("sample-result/bit_map_debug.txt", "w", encoding="utf-8") as f:
+                f.write("   " + "".join([f"{i:2d}" for i in range(gs)]) + "\n")
+                f.write("   " + "-" * (gs * 2) + "\n")
+                for y in range(gs):
+                    # 修正: fixed_bit_map[x, y] ではなく [y, x] で出力
+                    row_str = "".join([f"{fixed_bit_map[y, x]} " for x in range(gs)])
+                    f.write(f"{y:2d}| {row_str}\n")
+            print(" -> [Debug] ビットマップを sample-result/bit_map_debug.txt に保存しました")
 
         return fixed_bit_map
 
     def _decode_from_bit_map(self, bit_map):
         # 1. 文字数エリアの読み取り
         char_count = 0
-        for (x, y) in self.config.CHAR_COUNT_COORDS:
-            char_count = (char_count << 1) | bit_map[y, x]
+        for x, y in self.config.CHAR_COUNT_COORDS:
+            char_count = (char_count << 1) | int(bit_map[y, x])
         print(f"[Debug] 読み取った文字数(Length Indicator): {char_count} バイト")
 
-        # 2. ジグザグマッピングに従って抽出
-        bit_stream = [bit_map[x, y] for x, y in self.config.get_mapping()]
+        # 2. ジグザグマッピングに従って抽出 (修正: bit_map[y, x] に統一)
+        bit_stream = [int(bit_map[y, x]) for x, y in self.config.get_mapping()]
 
         # 3. バイト列の復元 (MSB First)
         byte_list = bytearray()
-        for i in range(0, len(bit_stream) - (len(bit_stream) % 8), 8):
+        usable_bits = len(bit_stream) - (len(bit_stream) % 8)
+        for i in range(0, usable_bits, 8):
             byte_val = 0
             for j in range(8):
                 byte_val = (byte_val << 1) | bit_stream[i + j]
@@ -110,15 +111,20 @@ class Decoder:
             msg_bytes = bytes(decoded_bytes)
         except Exception as e:
             print(f"[警告] RSデコード失敗: {e}")
-            msg_bytes = bytes(byte_list[:-self.config.ECC_BYTES] if len(byte_list) > self.config.ECC_BYTES else byte_list)
+            ecc_len = self.config.ECC_BYTES
+            msg_bytes = bytes(byte_list[:-ecc_len] if len(byte_list) > ecc_len else byte_list)
 
-        data_bytes = msg_bytes[:char_count] if 0 < char_count <= len(msg_bytes) else msg_bytes
-        return data_bytes.rstrip(b'\x00').decode('ascii', errors='ignore')
-    
-    def decode_image(self, img_path):
+        if 0 <= char_count <= len(msg_bytes):
+            data_bytes = msg_bytes[:char_count]
+        else:
+            data_bytes = msg_bytes
+
+        return data_bytes.decode("ascii", errors="ignore")
+
+    def decode_image(self, img_path, debug_mode=True):
         try:
-            square_img = self.vision.process(img_path, debug_mode=True)
-            bit_map = self.image_to_bitmap(square_img)
+            square_img = self.vision.process(img_path, debug_mode=debug_mode)
+            bit_map = self.image_to_bitmap(square_img, debug_mode=debug_mode)
             return self._decode_from_bit_map(bit_map)
         except Exception as e:
             print(f"[エラー] 画像デコード失敗: {e}")

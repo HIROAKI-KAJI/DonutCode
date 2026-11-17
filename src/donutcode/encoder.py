@@ -58,6 +58,9 @@ class Encoder:
                     if dx == 0 or dx == 4 or dy == 0 or dy == 4: matrix[y][x] = 1
                     elif dx == 2 and dy == 2: matrix[y][x] = 1
                     else: matrix[y][x] = 0
+                    
+                elif self.config.is_hole(x, y):
+                    matrix[y][x] = 2  # 穴領域を2としてマーク
 
                 elif self.config.is_timing(x, y):
                     # ゼブラ模様のタイミングパターン
